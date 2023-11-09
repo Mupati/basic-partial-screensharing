@@ -12,6 +12,19 @@
     />
     <title>Partial Screenshare with Insertable Streams</title>
     <style>
+      #main-container {
+        position: relative;
+      }
+
+      #container,
+      video {
+        position: absolute;
+        top: 0;
+        right: 0;
+        left: 0;
+        bottom: 0;
+      }
+
       img {
         max-width: 100%;
         display: none;
@@ -23,24 +36,24 @@
         padding: 10px;
         cursor: pointer;
       }
-
-      #shareScreen {
-        display: none;
-      }
     </style>
   </head>
   <body>
     <h1>Partial Screenshare with Insertable Streams</h1>
 
-    <button onclick="startCapture()" id="selectScreen">Select screen</button>
-    <button onclick="sharePartialScreen()" id="shareScreen">
-      Share Screen
-    </button>
+    <button onclick="startCapture()" id="selectScreen">Share screen</button>
 
-    <video autoplay id="screenshareDisplay" style="display: none"></video>
+    <div id="main-container">
+      <video autoplay id="screenshareDisplay" style="display: none"></video>
 
-    <div id="container">
-      <img src="" id="previewImage" alt="preview-image" style="display: none" />
+      <div id="container">
+        <img
+          src=""
+          id="previewImage"
+          alt="preview-image"
+          style="display: none"
+        />
+      </div>
     </div>
 
     <script
@@ -99,6 +112,8 @@
           imgElem.style.display = "block";
           imgElem.src = imageUrl;
 
+          const videoDisplay = document.getElementById("screenshareDisplay");
+          videoDisplay.style.display = "block";
           new Cropper(imgElem, {
             zoomable: false,
             restore: false,
@@ -107,13 +122,11 @@
               coordinates.y = event.detail.y;
               coordinates.height = event.detail.height;
               coordinates.width = event.detail.width;
+
+              const generatedStream = processVideoTrack(captureStream);
+              videoDisplay.srcObject = generatedStream;
             },
           });
-
-          const selectScreenBtn = document.getElementById("selectScreen");
-          const shareScreenBtn = document.getElementById("shareScreen");
-          selectScreenBtn.style.display = "none";
-          shareScreenBtn.style.display = "block";
         } catch (err) {
           console.error(`Error: ${err}`);
         }
@@ -152,17 +165,12 @@
               transform: cropVideoFramesWithCoordinates,
             })
           )
-          .pipeTo(generator.writable);
+          .pipeTo(generator.writable)
+          .catch((err) => {
+            // TODO: Figure out how to prevent this error
+            console.log("pipe error: ", { err });
+          });
         return generatedStream;
-      }
-
-      function sharePartialScreen() {
-        const container = document.getElementById("container");
-        container.style.display = "none";
-        const videoDisplay = document.getElementById("screenshareDisplay");
-        const generatedStream = processVideoTrack(captureStream);
-        videoDisplay.srcObject = generatedStream;
-        videoDisplay.style.display = "block";
       }
     </script>
   </body>
