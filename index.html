@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css"
+      integrity="sha512-hvNR0F/e2J7zPPfLC9auFe3/SE0yG4aJCOd/qxew74NN7eyiSKjr7xJJMu1Jy2wf7FXITpWS1E/RY8yzuXN7VA=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <title>Partial Screenshare with Insertable Streams</title>
+    <style>
+      img {
+        max-width: 100%;
+        display: none;
+      }
+
+      button {
+        display: block;
+        margin: 20px 0;
+        padding: 10px;
+        cursor: pointer;
+      }
+
+      #shareScreen {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Partial Screenshare with Insertable Streams</h1>
+
+    <button onclick="startCapture()" id="selectScreen">Select screen</button>
+    <button onclick="sharePartialScreen()" id="shareScreen">
+      Share Screen
+    </button>
+
+    <video autoplay id="screenshareDisplay" style="display: none"></video>
+
+    <div id="container">
+      <img src="" id="previewImage" alt="preview-image" style="display: none" />
+    </div>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"
+      integrity="sha512-9KkIqdfN7ipEW6B6k+Aq20PV31bjODg4AA52W+tYtAE0jE0kMx49bjJ3FgvS56wzmyfMUHbQ4Km2b7l9+Y/+Eg=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script>
+      async function getImageFromVideoStream(stream) {
+        const canvas = document.createElement("canvas");
+        if ("ImageCapture" in window) {
+          const videoTrack = stream.getVideoTracks()[0];
+          const imageCapture = new window.ImageCapture(videoTrack);
+          const bitmap = await imageCapture.grabFrame();
+          canvas.height = bitmap.height;
+          canvas.width = bitmap.width;
+          canvas.getContext("2d").drawImage(bitmap, 0, 0);
+          return canvas.toDataURL();
+        }
+        const video = document.createElement("video");
+        video.srcObject = stream;
+        return new Promise((resolve, reject) => {
+          video.addEventListener("loadeddata", async () => {
+            const { videoWidth, videoHeight } = video;
+            canvas.width = videoWidth;
+            canvas.height = videoHeight;
+
+            try {
+              await video.play();
+              canvas
+                .getContext("2d")
+                .drawImage(video, 0, 0, videoWidth, videoHeight);
+              return resolve(canvas.toDataURL());
+            } catch (error) {
+              return reject(error);
+            }
+          });
+        });
+      }
+
+      let captureStream;
+      const coordinates = {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      };
+
+      async function startCapture() {
+        try {
+          captureStream = await navigator.mediaDevices.getDisplayMedia();
+
+          const imageUrl = await getImageFromVideoStream(captureStream);
+          const imgElem = document.getElementById("previewImage");
+          imgElem.style.display = "block";
+          imgElem.src = imageUrl;
+
+          new Cropper(imgElem, {
+            zoomable: false,
+            restore: false,
+            crop(event) {
+              coordinates.x = event.detail.x;
+              coordinates.y = event.detail.y;
+              coordinates.height = event.detail.height;
+              coordinates.width = event.detail.width;
+            },
+          });
+
+          const selectScreenBtn = document.getElementById("selectScreen");
+          const shareScreenBtn = document.getElementById("shareScreen");
+          selectScreenBtn.style.display = "none";
+          shareScreenBtn.style.display = "block";
+        } catch (err) {
+          console.error(`Error: ${err}`);
+        }
+      }
+
+      function getSampleAlignedCoordinates(point) {
+        return point % 2 === 0 ? point : point - 1;
+      }
+
+      function cropVideoFramesWithCoordinates(frame, controller) {
+        const newFrame = new window.VideoFrame(frame, {
+          visibleRect: {
+            x: getSampleAlignedCoordinates(Math.round(coordinates.x)),
+            y: getSampleAlignedCoordinates(Math.round(coordinates.y)),
+            width: getSampleAlignedCoordinates(Math.round(coordinates.width)),
+            height: getSampleAlignedCoordinates(Math.round(coordinates.height)),
+          },
+        });
+        controller.enqueue(newFrame);
+        frame.close();
+      }
+
+      function processVideoTrack(track) {
+        const mainTrack = track.getVideoTracks()[0] ?? track;
+        const generator = new window.MediaStreamTrackGenerator({
+          kind: "video",
+        });
+        const generatedStream = new window.MediaStream([generator]);
+        const processor = new window.MediaStreamTrackProcessor({
+          track: mainTrack,
+        });
+
+        processor.readable
+          .pipeThrough(
+            new window.TransformStream({
+              transform: cropVideoFramesWithCoordinates,
+            })
+          )
+          .pipeTo(generator.writable);
+        return generatedStream;
+      }
+
+      function sharePartialScreen() {
+        const container = document.getElementById("container");
+        container.style.display = "none";
+        const videoDisplay = document.getElementById("screenshareDisplay");
+        const generatedStream = processVideoTrack(captureStream);
+        videoDisplay.srcObject = generatedStream;
+        videoDisplay.style.display = "block";
+      }
+    </script>
+  </body>
+</html>
